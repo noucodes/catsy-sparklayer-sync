@@ -1,78 +1,70 @@
 # Catsy to SparkLayer Sync Script
 
-A reliable Python script for syncing product pricing data from **Catsy** (PIM system) to **SparkLayer** (B2B pricing engine).
+An enterprise-grade Python utility designed to synchronize B2B pricing data between Catsy PIM and the SparkLayer B2B engine. This tool ensures that your trade pricing remains consistent across systems with minimal API overhead.
 
-## Overview
+## Workflow Architecture
 
 The script performs the following steps:
 
-1. Checks for a locally cached CSV file containing the full Catsy product export.
-2. If the CSV exists and has data → loads it quickly (no API calls).
-3. If no CSV or it's empty → fetches all products from the Catsy API (paginated) and caches them to CSV.
-4. Extracts `sku` and `price_trade` from each product.
-5. Uploads pricing updates to SparkLayer in batched PATCH requests.
+1. State Check: Verifies the existence of a local CSV cache (`catsy_products_full_export.csv`).
+
+2. Ingestion: * Hot Path: Loads data directly from CSV if present and valid.
+    - Cold Path: Executes paginated `GET` requests to Catsy API and updates the local cache.
+
+3. Transformation: Maps Catsy `sku` and `price_trade` fields to the SparkLayer JSON pricing schema.
+
+4. Transmission: Authenticates via OAuth2 and pushes updates via batched `PATCH` requests to SparkLayer.
 
 Designed for daily or automated runs – safe, repeatable, and easy to monitor.
 
-## Requirements
+## Prerequisites & Installation
 
-- Python 3.7+
+- Python 3.7 or higher
 - Install dependencies:
 
 ```bash
 pip install requests python-dotenv
 ```
-## Setup
+## Environment Configuration
 
-Create a `.env` file in the same directory as the script:
+Create a `.env` file in the root directory:
 ```env
-<!-- Catsy -->
-CATSY_BEARER_TOKEN=your_catsy_bearer_token_here
+# Catsy API Configuration
+CATSY_BEARER_TOKEN=your_token_here
 
-<!-- Spark Layer -->
-SPARKLAYER_URL=https://app.sparklayer.io
+# SparkLayer API Configuration
+SPARKLAYER_URL=https://api.sparklayer.io
 SITE_ID=your_site_id
-CLIENT_ID=your_sparklayer_client_id
-CLIENT_SECRET=your_sparklayer_client_secret
+CLIENT_ID=your_client_id
+CLIENT_SECRET=your_client_secret
 ```
 
-## Output Files
-|File | Description |
+## Operations & Monitoring
+### Logging Strategy
+The script implements a dual-stream logging system to keep monitoring clean while maintaining a "black box" recorder for troubleshooting.
+|File | Purpose |
 |------|------|
-|`catsy_products_full_export.csv` |Cached full export of all Catsy products (speeds up subsequent runs)|
 |`sync_info.log` | Clean log with INFO level and above – perfect for daily monitoring|
 |`sync_debug.log` | Full detailed log including DEBUG messages – for troubleshooting|
 
-## Logging System
-The script uses **two separate log files** based on severity:
+### Console Commands:
 
-| Log File | Contents | Best For |
+| Mode | Command | Output Behavior |
 |------|------|------|
-`sync_info.log` | "INFO, WARNING, ERROR, CRITICAL only" | Normal operation & quick reviews
-`sync_debug.log` |DEBUG + everything above |Investigating issues
-
-### Console output:
-
-- Normal run: INFO and higher
-- `--debug` mode: DEBUG and higher (very verbose)
-
-All messages are tagged with their source:
-
-- `[MAIN]` – overall script flow
-- `[CATSY]` – Catsy API operations
-- `[SPARKLAYER]` – SparkLayer operations
+**Standard** | `python sync.py` | Concise progress updates.
+**Debug** | `python sync.py --debug` |High-verbosity output for developers.
 
 ## How to Run
 ### Normal daily run
 
 ```bash
-python sync_script.py
+python sparkLayerApi.py
 ```
 → Clean output and logs.
 
 ### Debug / troubleshooting run
 ```bash
-python sync_script.py --debug
+python sparkLayerApi.py --debug
 ```
 → Verbose console + extra debug details in logs.
 
@@ -83,7 +75,6 @@ Variable|Description|Default Value
 `CATSY_DELAY`|Delay (seconds) between Catsy pages|0.5|
 `BATCH_SIZE`| Items per SparkLayer PATCH request|500|
 `BATCH_DELAY`|Delay (seconds) between SparkLayer batches|0.5|
-`OUTPUT_FILE`|Name of the cached CSV file|`catsy_products_full_export.csv`
 
 ## Safety & Reliability Features
 

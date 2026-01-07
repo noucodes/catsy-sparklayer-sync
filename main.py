@@ -68,14 +68,9 @@ CLIENT_SECRET = os.getenv('CLIENT_SECRET')
 BATCH_SIZE = 500
 BATCH_DELAY = 0.5
 
-# ==================== WEEKLY CACHE LOGIC ====================
-def should_refresh_cache():
-    """
-    Return True if we should fetch fresh data from Catsy.
-    We refresh every Monday (weekday 0 = Monday in Python).
-    """
-    today = datetime.now().weekday()  # 0 = Monday, 6 = Sunday
-    return today == 0  # Only refresh on Mondays
+# Folder and filename for debug export
+EXPORT_FOLDER = "exports"
+os.makedirs(EXPORT_FOLDER, exist_ok=True)  # Create folder if it doesn't exist
 
 # ==================== CATSY EXPORT ====================
 def fetch_catsy_products():
@@ -126,40 +121,29 @@ def fetch_catsy_products():
 
     return all_products
 
-# ==================== Exporting to CSV ====================
-def export_to_csv(products):
+def save_debug_csv(products, timestamp_str):
     if not products:
-        main_logger.info("No products to export.")
+        main_logger.info("No products to save to debug CSV.")
         return
 
+    # Get all unique keys
     all_keys = set()
     for p in products:
         all_keys.update(p.keys())
 
+    # Prioritize important columns
     priority_keys = ["sku", "price_trade"]
-    sorted_keys = [k for k in priority_keys if k in all_keys] + sorted([k for k in all_keys if k not in priority_keys])
+    fieldnames = [k for k in priority_keys if k in all_keys] + sorted([k for k in all_keys if k not in priority_keys])
 
-    with open(OUTPUT_FILE, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=sorted_keys)
+    filename = f"catsy_export_{timestamp_str}.csv"
+    filepath = os.path.join(EXPORT_FOLDER, filename)
+
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(products)
 
-    main_logger.info(f"\n🎉 Export complete: {len(products)} products saved to {OUTPUT_FILE}")
-
-# ==================== Read Existing CSV ====================
-def read_csv_products():
-    products = []
-    if not os.path.exists(OUTPUT_FILE):
-        return products
-
-    with open(OUTPUT_FILE, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if 'price_trade' in row and row['price_trade']:
-                row['price_trade'] = float(row['price_trade'])
-            products.append(row)
-    main_logger.info(f"✓ Loaded {len(products)} products from {OUTPUT_FILE}")
-    return products
+    main_logger.info(f"🗄️  Debug export saved: {filepath} ({len(products)} products)")
 
 # ==================== SPARKLAYER AUTH & PATCH (unchanged) ====================
 def get_sparklayer_token():
@@ -223,19 +207,19 @@ if __name__ == "__main__":
 
     try:
         main_logger.info("=== Starting Catsy → SparkLayer Sync ===")
-        today_weekday = datetime.now().strftime("%A")
 
-        # Decide whether to use cache or refresh
-        if os.path.exists(OUTPUT_FILE) and not should_refresh_cache():
-            main_logger.info(f"Using cached CSV (last refreshed on previous week). Today is {today_weekday}.")
-            catsy_products = read_csv_products()
-        else:
-            if os.path.exists(OUTPUT_FILE):
-                main_logger.info(f"Cache file exists but today is {today_weekday} (Monday) → forcing fresh fetch from Catsy.")
-            else:
-                main_logger.info("No cache file found → fetching fresh data from Catsy.")
-            catsy_products = fetch_catsy_products()
-            export_to_csv(catsy_products)
+        # Generate timestamp for filename
+        timestamp_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        # Always fetch fresh data from Catsy (no caching)
+        main_logger.info("Fetching fresh product data from Catsy...")
+        catsy_products = fetch_catsy_products()
+
+        if not catsy_products:
+            main_logger.warning("No products received from Catsy. Nothing to sync.")
+            exit(0)
+
+        save_debug_csv(catsy_products,timestamp_str)
 
         # Prepare and upload pricing
         sparklayer_items = []
@@ -243,10 +227,14 @@ if __name__ == "__main__":
             sku = p.get("sku")
             price = p.get("price_trade")
             if sku and price is not None:
-                sparklayer_items.append({
-                    "sku": sku,
-                    "pricing": [{"quantity": 1, "price": float(price), "unit_of_measure": None}]
-                })
+                try:
+                    price_float = float(price)
+                    sparklayer_items.append({
+                        "sku": sku,
+                        "pricing": [{"quantity": 1, "price": price_float, "unit_of_measure": None}]
+                    })
+                except (ValueError, TypeError):
+                    catsy_logger.warning(f"Invalid price_trade value for SKU {sku}: {price}")
 
         main_logger.info(f"Prepared {len(sparklayer_items)} items for upload to SparkLayer.")
 
