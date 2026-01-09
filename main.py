@@ -164,7 +164,7 @@ def get_sparklayer_token():
     sparklayer_logger.info("Access token obtained successfully.")
     return response.json()["access_token"]
 
-def patch_to_sparklayer(data, resource="price-lists/test/pricing"):
+def patch_to_sparklayer(data, resource="price-lists/wholesale/pricing"):
     token = get_sparklayer_token()
     url = f"{SPARK_BASE_URL}/api/v1/{resource}"
 
